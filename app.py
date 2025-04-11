@@ -15,42 +15,90 @@ class EnhancedSentimentAnalyzer:
             min_df=2
         )
         self.model = RandomForestClassifier(
-            n_estimators=100,
+            n_estimators=200,
             random_state=42,
             class_weight='balanced'
         )
         self.label_encoder = LabelEncoder()
         
-        # Sentiment lexicons
-        self.positive_words = set(['good', 'great', 'awesome', 'excellent', 'happy', 'love', 'wonderful', 'fantastic', 
-                                 'beautiful', 'enjoy', 'enjoying', 'pleased', 'amazing', 'superb', 'nice', 'best',
-                                 'positive', 'perfect', 'fun', 'excited', 'exciting', 'blessed', 'fantastic'])
+        # Expanded sentiment lexicons
+        self.positive_words = {
+            'good', 'great', 'awesome', 'excellent', 'happy', 'love', 'wonderful', 'fantastic', 
+            'beautiful', 'enjoy', 'enjoying', 'pleased', 'amazing', 'superb', 'nice', 'best',
+            'positive', 'perfect', 'fun', 'excited', 'exciting', 'blessed', 'fantastic',
+            'delighted', 'grateful', 'thankful', 'happy', 'glad', 'pleasant', 'lovely',
+            'outstanding', 'brilliant', 'joyful', 'success', 'successful', 'excellent',
+            'magnificent', 'wonderful', 'remarkable', 'fabulous', 'peaceful', 'fortunate',
+            'proud', 'delight', 'sunshine', 'kindness', 'kind', 'sweet', 'bright', 'super'
+        }
         
-        self.negative_words = set(['bad', 'terrible', 'awful', 'horrible', 'sad', 'hate', 'disappointing', 'upset',
-                                 'poor', 'worse', 'worst', 'negative', 'angry', 'mad', 'frustrated', 'disappointing',
-                                 'useless', 'wrong', 'never', 'problem', 'terrible', 'horrible', 'injustice'])
+        self.negative_words = {
+            'bad', 'terrible', 'awful', 'horrible', 'sad', 'hate', 'disappointing', 'upset',
+            'poor', 'worse', 'worst', 'negative', 'angry', 'mad', 'frustrated', 'disappointing',
+            'useless', 'wrong', 'never', 'problem', 'terrible', 'horrible', 'injustice',
+            'awful', 'unpleasant', 'unfair', 'evil', 'wicked', 'corrupt', 'unhappy',
+            'miserable', 'unfortunate', 'unacceptable', 'dissatisfied', 'heartbroken',
+            'failure', 'failed', 'terrible', 'awful', 'horrible', 'dreadful', 'pathetic',
+            'cruel', 'tragic', 'violence', 'violent', 'disaster', 'painful', 'pain', 'hurt',
+            'hostile', 'severe', 'suffer', 'suffering', 'disaster', 'cant believe', 'outrageous'
+        }
         
-        # Simple stopwords list
-        self.stopwords = {'a', 'an', 'and', 'are', 'as', 'at', 'be', 'by', 'for', 'from', 'has', 'he', 'in', 'is', 'it',
-                         'its', 'of', 'on', 'that', 'the', 'to', 'was', 'were', 'will', 'with'} - {'not', 'no', 'never'}
+        # Intensity modifiers
+        self.intensifiers = {
+            'very', 'really', 'extremely', 'absolutely', 'completely', 'totally',
+            'utterly', 'highly', 'incredibly', 'super', 'especially', 'particularly',
+            'thoroughly', 'deeply', 'strongly', 'seriously', 'desperately'
+        }
         
+        # Negation words
+        self.negation_words = {
+            'not', 'no', 'never', 'none', 'nobody', 'nothing', 'neither', 'nowhere', 
+            'cant', 'cannot', 'wont', 'wouldnt', 'shouldnt', 'dont', 'doesnt', 'didnt',
+            'isnt', 'arent', 'aint'
+        }
+        
+        # Simple stopwords list (excluding important sentiment words)
+        self.stopwords = {
+            'a', 'an', 'and', 'are', 'as', 'at', 'be', 'by', 'for', 'from', 'has', 'he',
+            'in', 'is', 'it', 'its', 'of', 'on', 'that', 'the', 'to', 'was', 'were',
+            'will', 'with'
+        }
+    
     def get_additional_features(self, text):
+        text_lower = text.lower()
+        words = text_lower.split()
+        
         # Get TextBlob sentiment
         blob = TextBlob(text)
         polarity = blob.sentiment.polarity
         subjectivity = blob.sentiment.subjectivity
         
         # Count positive and negative words
-        words = text.lower().split()
         positive_count = sum(1 for word in words if word in self.positive_words)
         negative_count = sum(1 for word in words if word in self.negative_words)
+        
+        # Count intensifiers and negations
+        intensifier_count = sum(1 for word in words if word in self.intensifiers)
+        negation_count = sum(1 for word in words if word in self.negation_words)
         
         # Check for exclamation marks and question marks
         exclamation_count = text.count('!')
         question_count = text.count('?')
         
-        return [polarity, subjectivity, positive_count, negative_count, 
-                exclamation_count, question_count]
+        # Check for negation followed by positive/negative words
+        negated_positive = 0
+        negated_negative = 0
+        for i in range(len(words)-1):
+            if words[i] in self.negation_words:
+                if i+1 < len(words):
+                    if words[i+1] in self.positive_words:
+                        negated_positive += 1
+                    elif words[i+1] in self.negative_words:
+                        negated_negative += 1
+        
+        return [polarity, subjectivity, positive_count, negative_count,
+                intensifier_count, negation_count, exclamation_count,
+                question_count, negated_positive, negated_negative]
     
     def preprocess_text(self, text):
         # Convert to lowercase
@@ -62,30 +110,56 @@ class EnhancedSentimentAnalyzer:
         # Simple word splitting
         words = text.split()
         
-        # Filter out stopwords
-        words = [word for word in words if word not in self.stopwords]
+        # Filter out stopwords but keep negations and sentiment words
+        words = [word for word in words if word not in self.stopwords or 
+                word in self.negation_words or 
+                word in self.positive_words or 
+                word in self.negative_words]
         
         return ' '.join(words)
     
     def determine_sentiment(self, text):
-        # Rule-based initial classification
-        words = text.lower().split()
-        pos_count = sum(1 for word in words if word in self.positive_words)
-        neg_count = sum(1 for word in words if word in self.negative_words)
+        text_lower = text.lower()
+        words = text_lower.split()
         
+        # Get base sentiment scores
         blob = TextBlob(text)
         polarity = blob.sentiment.polarity
         
-        if pos_count > neg_count and polarity > 0:
+        # Count sentiment indicators
+        pos_count = sum(1 for word in words if word in self.positive_words)
+        neg_count = sum(1 for word in words if word in self.negative_words)
+        
+        # Check for negations and their position
+        negation_indices = [i for i, word in enumerate(words) if word in self.negation_words]
+        
+        # Adjust sentiment counts based on negations
+        if negation_indices:
+            for neg_idx in negation_indices:
+                # Check words following negation (up to 3 words ahead)
+                for i in range(neg_idx + 1, min(neg_idx + 4, len(words))):
+                    if words[i] in self.positive_words:
+                        pos_count -= 1
+                        neg_count += 1
+                    elif words[i] in self.negative_words:
+                        neg_count -= 1
+                        pos_count += 1
+        
+        # Check for intensifiers and their impact
+        intensifier_count = sum(1 for word in words if word in self.intensifiers)
+        
+        # Adjust polarity based on intensifiers
+        if intensifier_count > 0:
+            polarity = polarity * (1 + 0.5 * intensifier_count)
+        
+        # Combined approach using multiple factors
+        sentiment_score = (pos_count - neg_count) * 0.5 + polarity
+        
+        # Determine final sentiment using a more nuanced approach
+        if sentiment_score > 0.2:
             return 'Positive'
-        elif neg_count > pos_count and polarity < 0:
-            return 'Negative'
-        elif abs(polarity) < 0.1 and pos_count == neg_count:
+        elif sentiment_score < -0.2:
             return 'Neutral'
-        elif polarity > 0:
-            return 'Positive'
-        elif polarity < 0:
-            return 'Negative'
         else:
             return 'Neutral'
     
@@ -101,7 +175,9 @@ class EnhancedSentimentAnalyzer:
         additional_features = df['Text'].apply(self.get_additional_features)
         additional_features_df = pd.DataFrame(additional_features.tolist(), 
                                            columns=['polarity', 'subjectivity', 'positive_count', 
-                                                  'negative_count', 'exclamation_count', 'question_count'])
+                                                  'negative_count', 'intensifier_count', 'negation_count',
+                                                  'exclamation_count', 'question_count', 
+                                                  'negated_positive', 'negated_negative'])
         
         # Determine sentiment
         print("Determining sentiments...")
