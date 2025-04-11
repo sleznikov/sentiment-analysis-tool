@@ -1,2 +1,2 @@
-# sentiment-analysis-webapp
+# sentiment-analysis-tool
  
